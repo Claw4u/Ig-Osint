@@ -1,5 +1,4 @@
 import instaloader
-from instastories import instaloader as stories_loader
 
 def download_posts(username):
     L = instaloader.Instaloader()
@@ -15,9 +14,13 @@ def download_posts(username):
     print("Posts downloaded successfully.")
 
 def download_stories(username):
-    downloader = stories_loader.Instaloader()
+    L = instaloader.Instaloader()
+    
+    # Login jika perlu
+    # L.login("your_username", "your_password")  # Uncomment jika ingin login
+
     print(f"Downloading stories from {username}...")
-    downloader.download_stories(usernames=[username])
+    L.download_stories(userids=[L.check_profile_id(username)])
     print("Stories downloaded successfully.")
 
 def download_highlights(username):
