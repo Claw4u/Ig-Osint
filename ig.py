@@ -8,7 +8,15 @@ import instaloader
 
 class InstagramOSINT:
     def __init__(self):
-        self.loader = instaloader.Instaloader()
+        self.loader = instaloader.Instaloader(
+            download_pictures=True,
+            download_videos=True,
+            download_video_thumbnails=False,
+            download_geotags=False,
+            download_comments=False,
+            save_metadata=True,
+            compress_json=False
+        )
         self.session = requests.Session()
         
     def login(self, username, password):
@@ -43,15 +51,15 @@ class InstagramOSINT:
             for key, value in info.items():
                 print(f"  {key}: {value}")
             
-            return info
+            return info, profile
         except Exception as e:
             print(f"[-] Failed to fetch profile information: {e}")
-            return None
+            return None, None
     
-    def download_public_posts(self, target_username, limit=10):
+    def download_public_posts(self, profile, limit=10):
         """Download recent public posts (images and videos)"""
         try:
-            profile = instaloader.Profile.from_username(self.loader.context, target_username)
+            target_username = profile.username
             
             if profile.is_private:
                 print("[-] Cannot download posts from private profile")
@@ -69,7 +77,7 @@ class InstagramOSINT:
                 
                 try:
                     # Download post
-                    self.loader.download_post(post, save_path)
+                    self.loader.download_post(post, target=save_path)
                     print(f"  Downloaded post from {post.date}")
                 except Exception as e:
                     print(f"  Failed to download post: {e}")
@@ -84,10 +92,10 @@ class InstagramOSINT:
             print(f"[-] Failed to download posts: {e}")
             return False
     
-    def download_profile_picture(self, target_username):
+    def download_profile_picture(self, profile):
         """Download profile picture"""
         try:
-            profile = instaloader.Profile.from_username(self.loader.context, target_username)
+            target_username = profile.username
             
             # Create directory for downloads
             save_path = f"downloads/{target_username}"
@@ -111,10 +119,82 @@ class InstagramOSINT:
             print(f"[-] Failed to download profile picture: {e}")
             return None
     
-    def analyze_user_activity(self, target_username, post_limit=10):
+    def download_stories(self, profile):
+        """Download public stories"""
+        try:
+            target_username = profile.username
+            
+            if profile.is_private and not profile.followed_by_viewer:
+                print("[-] Cannot download stories from private profile (not following)")
+                return False
+            
+            print(f"\n[+] Attempting to download stories for {target_username}...")
+            
+            # Create directory for downloads
+            save_path = f"downloads/{target_username}/stories"
+            os.makedirs(save_path, exist_ok=True)
+            
+            # Get user ID for story download
+            user_id = profile.userid
+            
+            try:
+                # Download stories
+                self.loader.download_stories(userids=[user_id], filename_target=save_path)
+                print(f"[+] Stories saved to {save_path}")
+                return True
+            except instaloader.exceptions.LoginRequiredException:
+                print("[-] Login required to download stories")
+                return False
+            except Exception as e:
+                print(f"[-] Failed to download stories: {e}")
+                return False
+                
+        except Exception as e:
+            print(f"[-] Failed to download stories: {e}")
+            return False
+    
+    def download_highlights(self, profile):
+        """Download highlights"""
+        try:
+            target_username = profile.username
+            
+            if profile.is_private and not profile.followed_by_viewer:
+                print("[-] Cannot download highlights from private profile (not following)")
+                return False
+            
+            print(f"\n[+] Attempting to download highlights for {target_username}...")
+            
+            # Create directory for downloads
+            save_path = f"downloads/{target_username}/highlights"
+            os.makedirs(save_path, exist_ok=True)
+            
+            # Get highlights
+            highlights = self.loader.get_highlights(profile)
+            if not highlights:
+                print("[-] No highlights found or not accessible")
+                return False
+            
+            for highlight in highlights:
+                try:
+                    print(f"  Downloading highlight: {highlight.title}")
+                    self.loader.download_highlight(highlight, save_path)
+                except Exception as e:
+                    print(f"  Failed to download highlight '{highlight.title}': {e}")
+                
+                # Respect rate limits
+                time.sleep(2)
+            
+            print(f"[+] Highlights saved to {save_path}")
+            return True
+                
+        except Exception as e:
+            print(f"[-] Failed to download highlights: {e}")
+            return False
+    
+    def analyze_user_activity(self, profile, post_limit=10):
         """Analyze posting patterns and activity"""
         try:
-            profile = instaloader.Profile.from_username(self.loader.context, target_username)
+            target_username = profile.username
             
             if profile.is_private:
                 print("[-] Cannot analyze private profile")
@@ -160,8 +240,8 @@ class InstagramOSINT:
             
             # Results
             analysis = {
-                "most_active_day": max(day_counts.items(), key=lambda x: x[1])[0],
-                "most_active_hour": max(hour_counts.items(), key=lambda x: x[1])[0],
+                "most_active_day": max(day_counts.items(), key=lambda x: x[1])[0] if day_counts else None,
+                "most_active_hour": max(hour_counts.items(), key=lambda x: x[1])[0] if hour_counts else None,
                 "top_hashtags": sorted(hashtags.items(), key=lambda x: x[1], reverse=True)[:5],
                 "top_mentioned_users": sorted(mentioned_users.items(), key=lambda x: x[1], reverse=True)[:5],
                 "top_locations": sorted(locations.items(), key=lambda x: x[1], reverse=True)[:3]
@@ -169,11 +249,14 @@ class InstagramOSINT:
             
             # Convert day number to name
             days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            analysis["most_active_day"] = days[analysis["most_active_day"]]
+            if analysis["most_active_day"] is not None:
+                analysis["most_active_day"] = days[analysis["most_active_day"]]
             
             print("\n[+] Activity Analysis:")
-            print(f"  Most active day: {analysis['most_active_day']}")
-            print(f"  Most active hour: {analysis['most_active_hour']}:00")
+            if analysis["most_active_day"]:
+                print(f"  Most active day: {analysis['most_active_day']}")
+            if analysis["most_active_hour"] is not None:
+                print(f"  Most active hour: {analysis['most_active_hour']}:00")
             
             if analysis['top_hashtags']:
                 print("  Top hashtags:")
@@ -195,6 +278,20 @@ class InstagramOSINT:
         except Exception as e:
             print(f"[-] Failed to analyze user activity: {e}")
             return None
+
+def show_menu():
+    print("\n" + "=" * 60)
+    print("              Instagram OSINT Menu                 ")
+    print("=" * 60)
+    print("1. Download Profile Picture")
+    print("2. Download Posts")
+    print("3. Download Stories")
+    print("4. Download Highlights")
+    print("5. Analyze User Activity")
+    print("6. Exit")
+    print("=" * 60)
+    choice = input("Enter your choice (1-6): ")
+    return choice
 
 def main():
     print("=" * 60)
@@ -218,25 +315,37 @@ def main():
     target_username = input("\n[?] Enter the target Instagram username to analyze: ")
     
     # Get profile info
-    profile_info = tool.get_public_profile_info(target_username)
+    profile_info, profile = tool.get_public_profile_info(target_username)
     if not profile_info:
         print("[-] Failed to get profile information. Exiting...")
         exit(1)
     
-    # Download profile picture
-    tool.download_profile_picture(target_username)
-    
-    # Ask about downloading posts
-    download_posts = input("\n[?] Do you want to download public posts? (y/n): ").lower() == 'y'
-    if download_posts:
-        post_limit = int(input("[?] How many posts do you want to download? (default: 10): ") or "10")
-        tool.download_public_posts(target_username, post_limit)
-    
-    # Ask about analyzing activity
-    analyze_activity = input("\n[?] Do you want to analyze user activity? (y/n): ").lower() == 'y'
-    if analyze_activity:
-        post_limit = int(input("[?] How many posts do you want to analyze? (default: 10): ") or "10")
-        tool.analyze_user_activity(target_username, post_limit)
+    while True:
+        choice = show_menu()
+        
+        if choice == '1':
+            tool.download_profile_picture(profile)
+        
+        elif choice == '2':
+            post_limit = int(input("[?] How many posts do you want to download? (default: 10): ") or "10")
+            tool.download_public_posts(profile, post_limit)
+        
+        elif choice == '3':
+            tool.download_stories(profile)
+        
+        elif choice == '4':
+            tool.download_highlights(profile)
+        
+        elif choice == '5':
+            post_limit = int(input("[?] How many posts do you want to analyze? (default: 10): ") or "10")
+            tool.analyze_user_activity(profile, post_limit)
+        
+        elif choice == '6':
+            print("\n[+] Exiting Instagram OSINT Tool.")
+            break
+        
+        else:
+            print("\n[-] Invalid choice. Please try again.")
     
     print("\n[+] OSINT operation completed")
     print("=" * 60)
