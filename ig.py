@@ -1,44 +1,235 @@
+import argparse
+import os
+import requests
+import json
+import time
+from datetime import datetime
 import instaloader
 
-def download_posts(username):
-    L = instaloader.Instaloader()
+class InstagramOSINT:
+    def __init__(self):
+        self.loader = instaloader.Instaloader()
+        self.session = requests.Session()
+        
+    def login(self, username, password):
+        """Log in to Instagram"""
+        try:
+            self.loader.login(username, password)
+            print(f"[+] Successfully logged in as {username}")
+            return True
+        except Exception as e:
+            print(f"[-] Login failed: {e}")
+            return False
     
-    # Login jika perlu
-    # L.login("your_username", "your_password")  # Uncomment jika ingin login
-
-    # Mengunduh semua postingan
-    profile = instaloader.Profile.from_username(L.context, username)
-    print(f"Downloading posts from {username}...")
-    for post in profile.get_posts():
-        L.download_post(post, target=profile.username)
-    print("Posts downloaded successfully.")
-
-def download_stories(username):
-    L = instaloader.Instaloader()
+    def get_public_profile_info(self, target_username):
+        """Get basic public profile information"""
+        try:
+            profile = instaloader.Profile.from_username(self.loader.context, target_username)
+            
+            info = {
+                "username": profile.username,
+                "full_name": profile.full_name,
+                "biography": profile.biography,
+                "followers": profile.followers,
+                "following": profile.followees,
+                "is_private": profile.is_private,
+                "is_verified": profile.is_verified,
+                "post_count": profile.mediacount,
+                "profile_pic_url": profile.profile_pic_url,
+                "external_url": profile.external_url
+            }
+            
+            print("\n[+] Public Profile Information:")
+            for key, value in info.items():
+                print(f"  {key}: {value}")
+            
+            return info
+        except Exception as e:
+            print(f"[-] Failed to fetch profile information: {e}")
+            return None
     
-    # Login jika perlu
-    # L.login("your_username", "your_password")  # Uncomment jika ingin login
-
-    print(f"Downloading stories from {username}...")
-    L.download_stories(userids=[L.check_profile_id(username)])
-    print("Stories downloaded successfully.")
-
-def download_highlights(username):
-    L = instaloader.Instaloader()
+    def download_public_posts(self, target_username, limit=10):
+        """Download recent public posts (images and videos)"""
+        try:
+            profile = instaloader.Profile.from_username(self.loader.context, target_username)
+            
+            if profile.is_private:
+                print("[-] Cannot download posts from private profile")
+                return False
+            
+            print(f"\n[+] Downloading up to {limit} most recent posts...")
+            
+            # Create directory for downloads
+            save_path = f"downloads/{target_username}/posts"
+            os.makedirs(save_path, exist_ok=True)
+            
+            for index, post in enumerate(profile.get_posts()):
+                if index >= limit:
+                    break
+                
+                try:
+                    # Download post
+                    self.loader.download_post(post, save_path)
+                    print(f"  Downloaded post from {post.date}")
+                except Exception as e:
+                    print(f"  Failed to download post: {e}")
+                
+                # Respect rate limits
+                time.sleep(2)
+            
+            print(f"[+] Posts saved to {save_path}")
+            return True
+        
+        except Exception as e:
+            print(f"[-] Failed to download posts: {e}")
+            return False
     
-    # Login jika perlu
-    # L.login("your_username", "your_password")  # Uncomment jika ingin login
+    def download_profile_picture(self, target_username):
+        """Download profile picture"""
+        try:
+            profile = instaloader.Profile.from_username(self.loader.context, target_username)
+            
+            # Create directory for downloads
+            save_path = f"downloads/{target_username}"
+            os.makedirs(save_path, exist_ok=True)
+            
+            # Download profile pic
+            filename = f"{save_path}/profile_pic.jpg"
+            response = requests.get(profile.profile_pic_url, stream=True)
+            
+            if response.status_code == 200:
+                with open(filename, 'wb') as f:
+                    for chunk in response.iter_content(1024):
+                        f.write(chunk)
+                print(f"\n[+] Profile picture saved to {filename}")
+                return filename
+            else:
+                print("[-] Failed to download profile picture")
+                return None
+                
+        except Exception as e:
+            print(f"[-] Failed to download profile picture: {e}")
+            return None
+    
+    def analyze_user_activity(self, target_username, post_limit=10):
+        """Analyze posting patterns and activity"""
+        try:
+            profile = instaloader.Profile.from_username(self.loader.context, target_username)
+            
+            if profile.is_private:
+                print("[-] Cannot analyze private profile")
+                return None
+            
+            print("\n[+] Analyzing user activity and posting patterns...")
+            
+            posts_dates = []
+            hashtags = {}
+            mentioned_users = {}
+            locations = {}
+            
+            for index, post in enumerate(profile.get_posts()):
+                if index >= post_limit:
+                    break
+                
+                # Store post date
+                posts_dates.append(post.date)
+                
+                # Analyze hashtags
+                for hashtag in post.caption_hashtags:
+                    hashtags[hashtag] = hashtags.get(hashtag, 0) + 1
+                
+                # Analyze mentioned users
+                for user in post.caption_mentions:
+                    mentioned_users[user] = mentioned_users.get(user, 0) + 1
+                
+                # Analyze locations
+                if post.location:
+                    loc_name = post.location.name if post.location.name else "Unknown"
+                    locations[loc_name] = locations.get(loc_name, 0) + 1
+                
+                # Respect rate limits
+                time.sleep(1)
+            
+            # Analyze posting times
+            day_counts = {i: 0 for i in range(7)}  # 0=Monday, 6=Sunday
+            hour_counts = {i: 0 for i in range(24)}
+            
+            for date in posts_dates:
+                day_counts[date.weekday()] += 1
+                hour_counts[date.hour] += 1
+            
+            # Results
+            analysis = {
+                "most_active_day": max(day_counts.items(), key=lambda x: x[1])[0],
+                "most_active_hour": max(hour_counts.items(), key=lambda x: x[1])[0],
+                "top_hashtags": sorted(hashtags.items(), key=lambda x: x[1], reverse=True)[:5],
+                "top_mentioned_users": sorted(mentioned_users.items(), key=lambda x: x[1], reverse=True)[:5],
+                "top_locations": sorted(locations.items(), key=lambda x: x[1], reverse=True)[:3]
+            }
+            
+            # Convert day number to name
+            days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            analysis["most_active_day"] = days[analysis["most_active_day"]]
+            
+            print("\n[+] Activity Analysis:")
+            print(f"  Most active day: {analysis['most_active_day']}")
+            print(f"  Most active hour: {analysis['most_active_hour']}:00")
+            
+            if analysis['top_hashtags']:
+                print("  Top hashtags:")
+                for tag, count in analysis['top_hashtags']:
+                    print(f"    #{tag}: {count} posts")
+            
+            if analysis['top_mentioned_users']:
+                print("  Top mentioned users:")
+                for user, count in analysis['top_mentioned_users']:
+                    print(f"    @{user}: {count} mentions")
+            
+            if analysis['top_locations']:
+                print("  Top locations:")
+                for loc, count in analysis['top_locations']:
+                    print(f"    {loc}: {count} posts")
+            
+            return analysis
+            
+        except Exception as e:
+            print(f"[-] Failed to analyze user activity: {e}")
+            return None
 
-    # Mengunduh sorotan
-    profile = instaloader.Profile.from_username(L.context, username)
-    print(f"Downloading highlights from {username}...")
-    for highlight in profile.get_highlights():
-        L.download_highlight(highlight, target=profile.username)
-    print("Highlights downloaded successfully.")
+def main():
+    parser = argparse.ArgumentParser(description='Instagram OSINT Tool')
+    parser.add_argument('-u', '--username', required=True, help='Your Instagram username')
+    parser.add_argument('-p', '--password', required=True, help='Your Instagram password')
+    parser.add_argument('-t', '--target', required=True, help='Target Instagram username')
+    parser.add_argument('--download-posts', action='store_true', help='Download public posts')
+    parser.add_argument('--analyze-activity', action='store_true', help='Analyze posting patterns')
+    parser.add_argument('--post-limit', type=int, default=10, help='Limit the number of posts to analyze')
+    
+    args = parser.parse_args()
+    
+    tool = InstagramOSINT()
+    
+    # Login
+    if not tool.login(args.username, args.password):
+        exit(1)
+    
+    # Get profile info
+    profile_info = tool.get_public_profile_info(args.target)
+    if not profile_info:
+        exit(1)
+    
+    # Download profile picture
+    tool.download_profile_picture(args.target)
+    
+    # Download posts if requested
+    if args.download_posts:
+        tool.download_public_posts(args.target, args.post_limit)
+    
+    # Analyze activity if requested
+    if args.analyze_activity:
+        tool.analyze_user_activity(args.target, args.post_limit)
+    
+    print("\n[+] OSINT operation completed")
 
 if __name__ == "__main__":
-    target_username = input("Enter the Instagram username to download from: ")
-    
-    download_posts(target_username)
-    download_stories(target_username)
-    download_highlights(target_username)
+    main()
