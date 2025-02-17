@@ -1,8 +1,8 @@
-import argparse
 import os
 import requests
 import json
 import time
+import getpass
 from datetime import datetime
 import instaloader
 
@@ -197,39 +197,49 @@ class InstagramOSINT:
             return None
 
 def main():
-    parser = argparse.ArgumentParser(description='Instagram OSINT Tool')
-    parser.add_argument('-u', '--username', required=True, help='Your Instagram username')
-    parser.add_argument('-p', '--password', required=True, help='Your Instagram password')
-    parser.add_argument('-t', '--target', required=True, help='Target Instagram username')
-    parser.add_argument('--download-posts', action='store_true', help='Download public posts')
-    parser.add_argument('--analyze-activity', action='store_true', help='Analyze posting patterns')
-    parser.add_argument('--post-limit', type=int, default=10, help='Limit the number of posts to analyze')
+    print("=" * 60)
+    print("              Instagram OSINT Tool                 ")
+    print("=" * 60)
+    print("\n[+] Welcome to the Instagram OSINT Tool")
+    print("[+] Please enter your login credentials")
     
-    args = parser.parse_args()
+    # Get login information
+    username = input("[?] Your Instagram username: ")
+    password = getpass.getpass("[?] Your Instagram password: ")
     
     tool = InstagramOSINT()
     
     # Login
-    if not tool.login(args.username, args.password):
+    if not tool.login(username, password):
+        print("[-] Login failed. Exiting...")
         exit(1)
     
+    # Get target username
+    target_username = input("\n[?] Enter the target Instagram username to analyze: ")
+    
     # Get profile info
-    profile_info = tool.get_public_profile_info(args.target)
+    profile_info = tool.get_public_profile_info(target_username)
     if not profile_info:
+        print("[-] Failed to get profile information. Exiting...")
         exit(1)
     
     # Download profile picture
-    tool.download_profile_picture(args.target)
+    tool.download_profile_picture(target_username)
     
-    # Download posts if requested
-    if args.download_posts:
-        tool.download_public_posts(args.target, args.post_limit)
+    # Ask about downloading posts
+    download_posts = input("\n[?] Do you want to download public posts? (y/n): ").lower() == 'y'
+    if download_posts:
+        post_limit = int(input("[?] How many posts do you want to download? (default: 10): ") or "10")
+        tool.download_public_posts(target_username, post_limit)
     
-    # Analyze activity if requested
-    if args.analyze_activity:
-        tool.analyze_user_activity(args.target, args.post_limit)
+    # Ask about analyzing activity
+    analyze_activity = input("\n[?] Do you want to analyze user activity? (y/n): ").lower() == 'y'
+    if analyze_activity:
+        post_limit = int(input("[?] How many posts do you want to analyze? (default: 10): ") or "10")
+        tool.analyze_user_activity(target_username, post_limit)
     
     print("\n[+] OSINT operation completed")
+    print("=" * 60)
 
 if __name__ == "__main__":
     main()
